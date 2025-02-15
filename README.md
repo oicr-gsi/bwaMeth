@@ -76,13 +76,14 @@ Parameter|Value|Default|Description
 Output | Type | Description | Labels
 ---|---|---|---
 `bwaMethBam`|File|Output Alignment BAM file|vidarr_label: bwaMethBam
-`bwaMethIndex`|File|Index of the Output Alignment file, BAI|vidarr_label: bwaMethIndex
+`bwaMethBamIndex`|File|Index of the Output Alignment file, BAI|vidarr_label: bwaMethIndex
 
 
 ## Commands
 This section lists command(s) run by bwaMeth workflow
 
 * Running bwaMeth
+
 
 ```
         set -euo pipefail
@@ -120,12 +121,13 @@ This section lists command(s) run by bwaMeth workflow
 
         java -jar ${PICARD_ROOT}/picard.jar \
         MarkDuplicates \
-        --OPTICAL_DUPLICATE_PIXEL_DISTANCE ~{opticalDistance} \
-        --CREATE_INDEX true \
-        --ASSUME_SORT_ORDER coordinate \
-        --VALIDATION_STRINGENCY SILENT \
-        -I ~{outputFileNamePrefix}.merged.bam\
-        -O ~{outputFileNamePrefix}.deduped.bam 
+        I=~{outputFileNamePrefix}.merged.bam \
+        O=~{outputFileNamePrefix}.deduped.bam \
+        METRICS_FILE=~{outputFileNamePrefix}.markDuplicates.txt \
+        OPTICAL_DUPLICATE_PIXEL_DISTANCE=~{opticalDistance} \
+        CREATE_INDEX=true \
+        ASSUME_SORT_ORDER=coordinate \
+        VALIDATION_STRINGENCY=SILENT 
 ```
 
  ## Support

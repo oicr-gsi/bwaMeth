@@ -133,7 +133,7 @@ workflow bwaMeth {
           description: "Output Alignment BAM file",
           vidarr_label: "bwaMethBam"
       },
-      bwaMethIndex: {
+      bwaMethBamIndex: {
           description: "Index of the Output Alignment file, BAI",
           vidarr_label: "bwaMethIndex"
       }
@@ -142,7 +142,7 @@ workflow bwaMeth {
 
     output {
         File bwaMethBam = mergeAandMarkDuplicates.outputMergedBam
-        File bwaMethIndex = mergeAandMarkDuplicates.outputMergedBai
+        File bwaMethBamIndex = mergeAandMarkDuplicates.outputMergedBai
     }
 }
 
@@ -340,8 +340,6 @@ task mergeAandMarkDuplicates{
         timeout:   "Hours before task timeout"    
     }
 
-    String resultMergedBam = "~{outputFileNamePrefix}.bam"
-
     command <<<
         set -euo pipefail
 
@@ -355,12 +353,13 @@ task mergeAandMarkDuplicates{
 
         java -jar ${PICARD_ROOT}/picard.jar \
         MarkDuplicates \
-        --OPTICAL_DUPLICATE_PIXEL_DISTANCE ~{opticalDistance} \
-        --CREATE_INDEX true \
-        --ASSUME_SORT_ORDER coordinate \
-        --VALIDATION_STRINGENCY SILENT \
-        -I ~{outputFileNamePrefix}.merged.bam\
-        -O ~{outputFileNamePrefix}.deduped.bam 
+        I=~{outputFileNamePrefix}.merged.bam \
+        O=~{outputFileNamePrefix}.deduped.bam \
+        METRICS_FILE=~{outputFileNamePrefix}.markDuplicates.txt \
+        OPTICAL_DUPLICATE_PIXEL_DISTANCE=~{opticalDistance} \
+        CREATE_INDEX=true \
+        ASSUME_SORT_ORDER=coordinate \
+        VALIDATION_STRINGENCY=SILENT 
     >>>
 
     runtime {
@@ -371,7 +370,7 @@ task mergeAandMarkDuplicates{
 
     output {
         File outputMergedBam = "~{outputFileNamePrefix}.deduped.bam"
-        File outputMergedBai = "~{outputFileNamePrefix}.deduped.bam.bai"  
+        File outputMergedBai = "~{outputFileNamePrefix}.deduped.bai"  
     }
 
     meta {
