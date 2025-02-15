@@ -1,0 +1,92 @@
+[
+    {
+        "arguments": {
+            "bwaMeth.fastqR1": {
+                "contents": {
+                    "configuration": "/.mounts/labs/gsiprojects/gsi/gsiusers/gpeng/workflow/bwaMeth/test/test_inputs/emseq-testg_R1.fastq.gz",
+                    "externalIds": [
+                        {
+                            "id": "TEST",
+                            "provider": "TEST"
+                        }
+                    ]
+                },
+                "type": "EXTERNAL"
+            },
+            "bwaMeth.fastqR2": {
+                "contents": {
+                    "configuration": "/.mounts/labs/gsiprojects/gsi/gsiusers/gpeng/workflow/bwaMeth/test/test_inputs/emseq-testg_R2.fastq.gz",
+                    "externalIds": [
+                        {
+                            "id": "TEST",
+                            "provider": "TEST"
+                        }
+                    ]
+                },
+                "type": "EXTERNAL"
+            },
+            "bwaMeth.outputFileNamePrefix": "emseq-testg_test2",
+            "bwaMeth.numChunk": 3,
+            "bwaMeth.reference": "hg38",
+            "bwaMeth.trimAndAlign.bwaReadGroup": "'@RG\\tID:121005_h804_0096_AD0V4NACXX-NoIndex_6\\tLB:emseq-testg\\tPL:ILLUMINA\\tPU:121005_h804_0096_AD0V4NACXX-NoIndex_6\\tSM:emseq-testg'",
+            "bwaMeth.mergeAandMarkDuplicates.opticalDistance": 100,
+            "bwaMeth.countChunkSize.modules": null,
+            "bwaMeth.countChunkSize.jobMemory": null,
+            "bwaMeth.countChunkSize.timeout": null,
+            "bwaMeth.slicerR1.jobMemory": null,
+            "bwaMeth.slicerR1.modules": null,
+            "bwaMeth.slicerR1.timeout": null,
+            "bwaMeth.slicerR2.jobMemory": null,
+            "bwaMeth.slicerR2.modules": null,
+            "bwaMeth.slicerR2.timeout": null,
+            "bwaMeth.trimAndAlign.modules": null,
+            "bwaMeth.trimAndAlign.jobMemory": null,
+            "bwaMeth.trimAndAlign.timeout": null,
+            "bwaMeth.trimAndAlign.threads": null,
+            "bwaMeth.trimAndAlign.bwaIndex": null,
+            "bwaMeth.trimAndAlign.fastpDisableQualityFiltering": false,
+            "bwaMeth.trimAndAlign.fastpQualifiedQualityPhred": null,
+            "bwaMeth.trimAndAlign.fastpUnqualifiedPercentLimit": null,
+            "bwaMeth.trimAndAlign.fastpNBaseLimit": null,
+            "bwaMeth.trimAndAlign.fastpDisableLengthFiltering": false,
+            "bwaMeth.trimAndAlign.fastpLengthRequired": null,
+            "bwaMeth.trimAndAlign.fastpDisableAdapterTrimming": false,   
+            "bwaMeth.trimAndAlign.fastpDisableTrimPolyG": false,
+            "bwaMeth.mergeAandMarkDuplicates.modules": null,
+            "bwaMeth.mergeAandMarkDuplicates.jobMemory": null,
+            "bwaMeth.mergeAandMarkDuplicates.timeout": null
+        },
+        "description": "bwaMeth workflow test",
+        "engineArguments": {
+           "write_to_cache": false,
+           "read_from_cache": false
+        },
+        "id": "bwaMeth_test_with_emseq-testg",
+        "metadata": {
+            "bwaMeth.bwaMethBam": {
+                "contents": [
+                    {
+                        "outputDirectory": "@SCRATCH@/@DATE@_Workflow_bwaMeth_test_with_emseq-testg_@JENKINSID@"
+                    }
+                ],
+                "type": "ALL"
+            },
+            "bwaMeth.bwaMethIndex": {
+                "contents": [
+                    {
+                        "outputDirectory": "@SCRATCH@/@DATE@_Workflow_bwaMeth_test_with_emseq-testg_@JENKINSID@"
+                    }
+                ],
+                "type": "ALL"
+            }
+        },
+        "validators": [
+            {
+                "metrics_calculate": "@CHECKOUT@/tests/calculate.sh",
+                "metrics_compare": "@CHECKOUT@/tests/compare.sh",
+                "output_metrics": "/.mounts/labs/gsi/testdata/bwaMeth/output_expectation/bwaMeth_test_with_emseq-testg.metrics",
+                "type": "script"
+            }
+        ]
+    }
+]
