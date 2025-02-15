@@ -3,7 +3,7 @@
         "arguments": {
             "bwaMeth.fastqR1": {
                 "contents": {
-                    "configuration": "/.mounts/labs/gsiprojects/gsi/gsiusers/gpeng/workflow/bwaMeth/test/test_inputs/emseq-testg_R1.fastq.gz",
+                    "configuration": "/.mounts/labs/gsi/testdata/bwaMeth/test_inputs/emseq-testg_R1.fastq.gz",
                     "externalIds": [
                         {
                             "id": "TEST",
@@ -15,7 +15,7 @@
             },
             "bwaMeth.fastqR2": {
                 "contents": {
-                    "configuration": "/.mounts/labs/gsiprojects/gsi/gsiusers/gpeng/workflow/bwaMeth/test/test_inputs/emseq-testg_R2.fastq.gz",
+                    "configuration": "/.mounts/labs/gsi/testdata/bwaMeth/test_inputs/emseq-testg_R2.fastq.gz",
                     "externalIds": [
                         {
                             "id": "TEST",
