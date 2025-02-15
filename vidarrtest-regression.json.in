@@ -72,7 +72,7 @@
                 ],
                 "type": "ALL"
             },
-            "bwaMeth.bwaBamMethIndex": {
+            "bwaMeth.bwaMethBamIndex": {
                 "contents": [
                     {
                         "outputDirectory": "@SCRATCH@/@DATE@_Workflow_bwaMeth_test_with_emseq-testg_@JENKINSID@"
