@@ -7,14 +7,19 @@ struct GenomeResources {
     String fasta
 }
 
+struct fastqInputs {
+    File fastqR1
+    File? fastqR2
+    String readGroup
+    Int numChunk
+    Int? numReads
+}
+
 workflow bwaMeth {
     input {
-        File fastqR1
-        File? fastqR2
-        String outputFileNamePrefix
-        Int numChunk = 1
+        Array[fastqInputs] inputGroups
+        String outputFileNamePrefix     
         String reference
-        Int? numReads
     }
 
     parameter_meta {
@@ -38,56 +43,62 @@ workflow bwaMeth {
 
     GenomeResources ref = resources[reference]
 
-    if (numChunk > 1) {
-        call countChunkSize {
-            input:
-            fastqR1 = fastqR1,
-            numChunk = numChunk,
-            numReads = numReads
-        }
-    
-        call slicer as slicerR1 { 
-            input: 
-            fastqR = fastqR1,
-            chunkSize = countChunkSize.chunkSize
-        }
-        if (defined(fastqR2)) {
-            File fastqR2_ = select_all([fastqR2])[0]
-            call slicer as slicerR2 {
+    scatter (ig in inputGroups){
+        if (ig.numChunk > 1) {
+            call countChunkSize {
                 input:
-                fastqR = fastqR2_,
+                fastqR1 = ig.fastqR1,
+                numChunk = ig.numChunk,
+                numReads = ig.numReads
+            }
+        
+            call slicer as slicerR1 { 
+                input: 
+                fastqR = ig.fastqR1,
                 chunkSize = countChunkSize.chunkSize
             }
+            if (defined(ig.fastqR2)) {
+                File fastqR2_ = select_all([ig.fastqR2])[0]
+                call slicer as slicerR2 {
+                    input:
+                    fastqR = fastqR2_,
+                    chunkSize = countChunkSize.chunkSize
+                }
+            }
+        }
+
+        Array[File] fastq1 = select_first([slicerR1.chunkFastq, [ig.fastqR1]])
+
+        if(defined(ig.fastqR2)) {
+        Array[File?] fastq2 = select_first([slicerR2.chunkFastq, [ig.fastqR2]])
+        Array[Pair[File,File?]] pairedFastqs = zip(fastq1,fastq2)
+        }
+
+        if(!defined(ig.fastqR2)) {
+        Array[Pair[File,File?]] singleFastqs = cross(fastq1,[ig.fastqR2])
+        }
+
+        Array[Pair[File,File?]] fastqPairs = select_first([pairedFastqs, singleFastqs])
+
+        scatter (p in fastqPairs) {
+            call trimAndAlign  { 
+                    input: 
+                    read1 =  p.left,
+                    read2 = if (defined(ig.fastqR2)) then p.right else ig.fastqR2,
+                    bwaReadGroup = ig.readGroup,
+                    bwaIndex = ref.index,
+                    modules = "fastp/0.23.2 bwa-meth/0.2.5 ~{ref.indexModule}"
+            }    
+        }
+        call mergeBams {
+            input:
+            bams = trimAndAlign.bam
         }
     }
-
-    Array[File] fastq1 = select_first([slicerR1.chunkFastq, [fastqR1]])
-
-    if(defined(fastqR2)) {
-      Array[File?] fastq2 = select_first([slicerR2.chunkFastq, [fastqR2]])
-      Array[Pair[File,File?]] pairedFastqs = zip(fastq1,fastq2)
-    }
-
-    if(!defined(fastqR2)) {
-      Array[Pair[File,File?]] singleFastqs = cross(fastq1,[fastqR2])
-    }
-
-    Array[Pair[File,File?]] fastqPairs = select_first([pairedFastqs, singleFastqs])
-
-    scatter (p in fastqPairs) {
-
-        call trimAndAlign  { 
-                input: 
-                read1 =  p.left,
-                read2 = if (defined(fastqR2)) then p.right else fastqR2,
-                bwaIndex = ref.index,
-                modules = "fastp/0.23.2 bwa-meth/0.2.5 ~{ref.indexModule}"
-        }    
-    }
-
+    
     call mergeAandMarkDuplicates {
         input:
-        bams = trimAndAlign.bam,
+        bams = mergeBams.mergedBam,
         outputFileNamePrefix = outputFileNamePrefix
     }
 
@@ -322,14 +333,51 @@ task trimAndAlign {
     }
 }
 
+task mergeBams{
+    input {
+        Array[File] bams
+        Int jobMemory = 32
+        String modules = "picard/2.21.2"
+        Int timeout = 12
+    }
+    parameter_meta {
+        bams:  "Input bam files"
+        jobMemory: "Memory allocated indexing job"
+        modules:   "Required environment modules"
+        timeout:   "Hours before task timeout"    
+    }
+
+    command <<<
+        set -euo pipefail
+
+        export JAVA_OPTS="-Xmx$(echo "scale=0; ~{jobMemory} * 0.8 / 1" | bc)G"
+        java -jar ${PICARD_ROOT}/picard.jar \
+        MergeSamFiles \
+        I=~{sep=" I=" bams} \
+        O=mergedChunks.bam \
+        USE_THREADING=true \
+        SORT_ORDER=coordinate
+    >>>
+
+    runtime {
+        memory: "~{jobMemory} GB"
+        modules: "~{modules}"
+        timeout: "~{timeout}"
+    }
+
+    output {
+        File mergedBam = "mergedChunks.bam"
+    }
+}
+
 task mergeAandMarkDuplicates{
     input {
         Array[File] bams
         String outputFileNamePrefix
         Int opticalDistance = 100
         Int jobMemory = 64
-        String modules  = "picard/2.21.2"
-        Int timeout     = 72
+        String modules = "picard/2.21.2"
+        Int timeout = 72
     }
     parameter_meta {
         bams:  "Input bam files"
@@ -354,12 +402,12 @@ task mergeAandMarkDuplicates{
         java -jar ${PICARD_ROOT}/picard.jar \
         MarkDuplicates \
         I=~{outputFileNamePrefix}.merged.bam \
-        O=~{outputFileNamePrefix}.deduped.bam \
+        O=~{outputFileNamePrefix}.merged.deduped.bam \
         METRICS_FILE=~{outputFileNamePrefix}.markDuplicates.txt \
         OPTICAL_DUPLICATE_PIXEL_DISTANCE=~{opticalDistance} \
         CREATE_INDEX=true \
         ASSUME_SORT_ORDER=coordinate \
-        VALIDATION_STRINGENCY=SILENT 
+        VALIDATION_STRINGENCY=SILENT
     >>>
 
     runtime {
@@ -369,8 +417,8 @@ task mergeAandMarkDuplicates{
     }
 
     output {
-        File outputMergedBam = "~{outputFileNamePrefix}.deduped.bam"
-        File outputMergedBai = "~{outputFileNamePrefix}.deduped.bai"  
+        File outputMergedBam = "~{outputFileNamePrefix}.merged.deduped.bam"
+        File outputMergedBai = "~{outputFileNamePrefix}.merged.deduped.bai"  
     }
 
     meta {
