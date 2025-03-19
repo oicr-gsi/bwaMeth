@@ -99,7 +99,9 @@ workflow bwaMeth {
     call mergeAandMarkDuplicates {
         input:
         bams = mergeBams.mergedBam,
-        outputFileNamePrefix = outputFileNamePrefix
+        outputFileNamePrefix = outputFileNamePrefix,
+        reference_genome = ref.index,
+        modules = "sambamba/0.8.2 samtools/1.15  picard/2.21.2 methylseq-mark-nonconverted-reads/1.2 ~{ref.indexModule}"
     }
 
     meta {
@@ -154,6 +156,7 @@ workflow bwaMeth {
     output {
         File bwaMethBam = mergeAandMarkDuplicates.outputMergedBam
         File bwaMethBamIndex = mergeAandMarkDuplicates.outputMergedBai
+        File nonConvertedReads = mergeAandMarkDuplicates.nonconverted_reads
     }
 }
 
@@ -374,22 +377,26 @@ task mergeAandMarkDuplicates{
     input {
         Array[File] bams
         String outputFileNamePrefix
+        String reference_genome
         Int opticalDistance = 100
         Int jobMemory = 64
-        String modules = "picard/2.21.2"
+        String modules
         Int timeout = 72
     }
     parameter_meta {
         bams:  "Input bam files"
         outputFileNamePrefix: "Prefix for output file"
+        reference_genome: "the reference genome fasta"
         opticalDistance: "For MarkDuplicates. The maximum offset between two duplicate clusters in order to consider them optical duplicates. 100 is appropriate for unpatterned versions of the Illumina platform. For the patterned flowcell models, 2500 is more appropriate."
         jobMemory: "Memory allocated indexing job"
         modules:   "Required environment modules"
         timeout:   "Hours before task timeout"    
     }
+    String tmpDir = "tmp/"
 
     command <<<
         set -euo pipefail
+        mkdir -p ~{tmpDir}
 
         export JAVA_OPTS="-Xmx$(echo "scale=0; ~{jobMemory} * 0.8 / 1" | bc)G"
         java -jar ${PICARD_ROOT}/picard.jar \
@@ -408,6 +415,11 @@ task mergeAandMarkDuplicates{
         CREATE_INDEX=true \
         ASSUME_SORT_ORDER=coordinate \
         VALIDATION_STRINGENCY=SILENT
+
+        python3 $METHYLSEQ_MARK_NONCONVERTED_READS_ROOT/bin/mark-nonconverted-reads.py --reference ~{reference_genome} --bam ~{outputFileNamePrefix}.merged.deduped.bam 2> "~{outputFileNamePrefix}.merged.deduped.nonconverted.tsv" \
+        | samtools view -u /dev/stdin \
+        | sambamba sort  --tmpdir=~{tmpDir}  -o "~{outputFileNamePrefix}.marknonconverted.merged.deduped.bam" /dev/stdin
+        sambamba index ~{outputFileNamePrefix}.marknonconverted.merged.deduped.bam
     >>>
 
     runtime {
@@ -417,8 +429,9 @@ task mergeAandMarkDuplicates{
     }
 
     output {
-        File outputMergedBam = "~{outputFileNamePrefix}.merged.deduped.bam"
-        File outputMergedBai = "~{outputFileNamePrefix}.merged.deduped.bai"  
+        File outputMergedBam = "~{outputFileNamePrefix}.marknonconverted.merged.deduped.bam"
+        File outputMergedBai = "~{outputFileNamePrefix}.marknonconverted.merged.deduped.bam.bai"
+        File nonconverted_reads = "~{outputFileNamePrefix}.merged.deduped.nonconverted.tsv"
     }
 
     meta {
