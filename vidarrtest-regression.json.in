@@ -28,7 +28,8 @@
                         "type": "EXTERNAL"
                     },
                     "readGroup": "'@RG\\tID:121005_h804_0096_AD0V4NACXX-NoIndex_6\\tLB:emseq-testg\\tPL:ILLUMINA\\tPU:121005_h804_0096_AD0V4NACXX-NoIndex_6\\tSM:emseq-testg'",
-                    "numChunk": 1
+                    "numChunk": 1,
+                    "numReads": null
                 }
             ],
             "bwaMeth.outputFileNamePrefix": "emseq-testg_test2",
