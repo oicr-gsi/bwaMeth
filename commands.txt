@@ -1,50 +1,84 @@
 ## Commands
-This section lists command(s) run by bwaMeth workflow
-
-* Running bwaMeth
-
-
+ This section lists command(s) run by bwaMeth workflow
+ 
+ * Running bwaMeth
+ 
+ 
 ```
-        set -euo pipefail
-
-        if [ -z "~{numReads}" ]; then
-            totalLines=$(zcat ~{fastqR1} | wc -l)
-        else totalLines=$((~{numReads}*4))
-        fi
-        
-        python3 -c "from math import ceil; print (int(ceil(($totalLines/4.0)/~{numChunk})*4))"
-```
-```
-        set -euo pipefail
-        slicer -i ~{fastqR} -l ~{chunkSize} --gzip 
+         set -euo pipefail
+ 
+         if [ -z "~{numReads}" ]; then
+             totalLines=$(zcat ~{fastqR1} | wc -l)
+         else totalLines=$((~{numReads}*4))
+         fi
+         
+         python3 -c "from math import ceil; print (int(ceil(($totalLines/4.0)/~{numChunk})*4))"
 ```
 ```
-        set -euo pipefail
-        fastp \
-            --stdout --thread ~{threads} \
-            ~{fastpQ} ~{fastpq} ~{fastpu} ~{fastpn} ~{fastpL} ~{fastpl} ~{fastpA} ~{fastpG} \
-            -i ~{read1} -I ~{read2} \
-        | bwameth.py -p --threads ~{threads} --read-group ~{bwaReadGroup} --reference ~{bwaIndex} /dev/stdin \
-        | samtools sort -o output.bam -@ ~{threads} -
+         set -euo pipefail
+         slicer -i ~{fastqR} -l ~{chunkSize} --gzip 
 ```
 ```
-        set -euo pipefail
-
-        export JAVA_OPTS="-Xmx$(echo "scale=0; ~{jobMemory} * 0.8 / 1" | bc)G"
-        java -jar ${PICARD_ROOT}/picard.jar \
-        MergeSamFiles \
-        I=~{sep=" I=" bams} \
-        O=~{outputFileNamePrefix}.merged.bam \
-        USE_THREADING=true \
+         set -euo pipefail
+         fastp \
+             --stdout --thread ~{threads} \
+             ~{fastpQ} ~{fastpq} ~{fastpu} ~{fastpn} ~{fastpL} ~{fastpl} ~{fastpA} ~{fastpG} \
+             -i ~{read1} -I ~{read2} \
+         | bwameth.py -p --threads ~{threads} --read-group ~{bwaReadGroup} --reference ~{bwaIndex} /dev/stdin \
+         | samtools sort -o output.bam -@ ~{threads} -
+```
+```
+         set -euo pipefail
+ 
+         export JAVA_OPTS="-Xmx$(echo "scale=0; ~{jobMemory} * 0.8 / 1" | bc)G"
+         java -jar ${PICARD_ROOT}/picard.jar \
+         MergeSamFiles \
+         I=~{sep=" I=" bams} \
+         O=mergedChunks.bam \
+         USE_THREADING=true \
+         SORT_ORDER=coordinate
+```
+```
+         set -euo pipefail
+         mkdir -p ~{tmpDir}
+ 
+         export JAVA_OPTS="-Xmx$(echo "scale=0; ~{jobMemory} * 0.8 / 1" | bc)G"
+         java -jar ${PICARD_ROOT}/picard.jar \
+         MergeSamFiles \
+         I=~{sep=" I=" bams} \
+         O=~{outputFileNamePrefix}.merged.bam \
+         USE_THREADING=true \
+         SORT_ORDER=coordinate
+ 
+         java -jar ${PICARD_ROOT}/picard.jar \
+         MarkDuplicates \
+         I=~{outputFileNamePrefix}.merged.bam \
+         O=~{outputFileNamePrefix}.merged.deduped.bam \
+         METRICS_FILE=~{outputFileNamePrefix}.markDuplicates.txt \
+         OPTICAL_DUPLICATE_PIXEL_DISTANCE=~{opticalDistance} \
+         CREATE_INDEX=true \
+         ASSUME_SORT_ORDER=coordinate \
+         VALIDATION_STRINGENCY=SILENT
+ 
+         python3 $METHYLSEQ_MARK_NONCONVERTED_READS_ROOT/bin/mark-nonconverted-reads.py --reference ~{reference_genome} --bam ~{outputFileNamePrefix}.merged.deduped.bam 2> "~{outputFileNamePrefix}.merged.deduped.nonconverted.tsv" \
+         | samtools view -u /dev/stdin \
+         | sambamba sort  --tmpdir=~{tmpDir}  -o "~{outputFileNamePrefix}.marknonconverted.merged.deduped.bam" /dev/stdin
+         sambamba index ~{outputFileNamePrefix}.marknonconverted.merged.deduped.bam
+```        USE_THREADING=true \
         SORT_ORDER=coordinate
 
         java -jar ${PICARD_ROOT}/picard.jar \
         MarkDuplicates \
         I=~{outputFileNamePrefix}.merged.bam \
-        O=~{outputFileNamePrefix}.deduped.bam \
+        O=~{outputFileNamePrefix}.merged.deduped.bam \
         METRICS_FILE=~{outputFileNamePrefix}.markDuplicates.txt \
         OPTICAL_DUPLICATE_PIXEL_DISTANCE=~{opticalDistance} \
         CREATE_INDEX=true \
         ASSUME_SORT_ORDER=coordinate \
-        VALIDATION_STRINGENCY=SILENT 
-```
+        VALIDATION_STRINGENCY=SILENT
+
+        python3 $METHYLSEQ_MARK_NONCONVERTED_READS_ROOT/bin/mark-nonconverted-reads.py --reference ~{reference_genome} --bam ~{outputFileNamePrefix}.merged.deduped.bam 2> "~{outputFileNamePrefix}.merged.deduped.nonconverted.tsv" \
+        | samtools view -u /dev/stdin \
+        | sambamba sort  --tmpdir=~{tmpDir}  -o "~{outputFileNamePrefix}.marknonconverted.merged.deduped.bam" /dev/stdin
+        sambamba index ~{outputFileNamePrefix}.marknonconverted.merged.deduped.bam
+    >>>

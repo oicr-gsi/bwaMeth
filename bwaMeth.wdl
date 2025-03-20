@@ -23,13 +23,9 @@ workflow bwaMeth {
     }
 
     parameter_meta {
-        fastqR1: "Fastq file for read 1"
-        fastqR2: "Fastq file for read 2"
+        inputGroups: "Array of fastq inputs and parameters"
         outputFileNamePrefix: "Prefix for output files"
-        numChunk: "Number of chunks to split fastq file [1, no splitting]"
-        doTrim: "If true, adapters will be trimmed before alignment [false]"
-        reference: "The genome reference build. For example: hg19, hg38, mm10"
-        numReads: "Number of reads"
+        reference: "The genome reference build. For example: hg19, hg38"
     }
 
     Map[String, GenomeResources] resources = {
@@ -139,17 +135,24 @@ workflow bwaMeth {
         {
             name: "python/3.7",
             url: "https://www.python.org"
-        }      
+        },
+        {   name: "methylseq-mark-nonconverted-reads/1.2",
+            url: "https://github.com/nebiolabs/mark-nonconverted-reads"
+        }
       ]
       output_meta: {
-      bwaMethBam: {
-          description: "Output Alignment BAM file",
-          vidarr_label: "bwaMethBam"
-      },
-      bwaMethBamIndex: {
-          description: "Index of the Output Alignment file, BAI",
-          vidarr_label: "bwaMethIndex"
-      }
+        bwaMethBam: {
+            description: "Output Alignment BAM file, merged, dedplicated and marked nonconverted reads",
+            vidarr_label: "bwaMethBam"
+        },
+        bwaMethBamIndex: {
+            description: "Index of the Output Alignment file, merged, deduplicated file, and marked nonconverted reads",
+            vidarr_label: "bwaMethIndex"
+        },
+        nonConvertedReads: {
+            description: "Statistics of nonconverted reads",
+            vidarr_label: "nonConvertedReads"
+        }
       }
     }
 

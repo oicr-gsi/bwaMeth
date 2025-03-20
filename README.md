@@ -14,6 +14,7 @@ Workflow to run bwa-meth, the fast aligner for EM-seq/BS-Seq reads. Prior to ali
 * [gsi modules : hg38-bwa-meth-index p12-2022-10-17](https://gitlab.oicr.on.ca/ResearchIT/modulator)
 * [picard 2.21.2](https://broadinstitute.github.io/picard/)
 * [python 3.7](https://www.python.org)
+* [methylseq-mark-nonconverted-reads 1.2](https://github.com/nebiolabs/mark-nonconverted-reads)
 
 
 ## Usage
@@ -28,18 +29,14 @@ java -jar cromwell.jar run bwaMeth.wdl --inputs inputs.json
 #### Required workflow parameters:
 Parameter|Value|Description
 ---|---|---
-`fastqR1`|File|Fastq file for read 1
+`inputGroups`|Array[fastqInputs]|Array of fastq inputs and parameters
 `outputFileNamePrefix`|String|Prefix for output files
-`reference`|String|The genome reference build. For example: hg19, hg38, mm10
-`trimAndAlign.bwaReadGroup`|String|Read group that will populate the `@RG` BAM flag
+`reference`|String|The genome reference build. For example: hg19, hg38
 
 
 #### Optional workflow parameters:
 Parameter|Value|Default|Description
 ---|---|---|---
-`fastqR2`|File?|None|Fastq file for read 2
-`numChunk`|Int|1|Number of chunks to split fastq file [1, no splitting]
-`numReads`|Int?|None|Number of reads
 
 
 #### Optional task parameters:
@@ -65,9 +62,11 @@ Parameter|Value|Default|Description
 `trimAndAlign.timeout`|Int|48|The hours until the task is killed
 `trimAndAlign.memory`|Int|32|The GB of memory provided to the task
 `trimAndAlign.threads`|Int|8|The number of threads the task has access to
+`mergeBams.jobMemory`|Int|32|Memory allocated indexing job
+`mergeBams.modules`|String|"picard/2.21.2"|Required environment modules
+`mergeBams.timeout`|Int|12|Hours before task timeout
 `mergeAandMarkDuplicates.opticalDistance`|Int|100|For MarkDuplicates. The maximum offset between two duplicate clusters in order to consider them optical duplicates. 100 is appropriate for unpatterned versions of the Illumina platform. For the patterned flowcell models, 2500 is more appropriate.
 `mergeAandMarkDuplicates.jobMemory`|Int|64|Memory allocated indexing job
-`mergeAandMarkDuplicates.modules`|String|"picard/2.21.2"|Required environment modules
 `mergeAandMarkDuplicates.timeout`|Int|72|Hours before task timeout
 
 
@@ -75,59 +74,77 @@ Parameter|Value|Default|Description
 
 Output | Type | Description | Labels
 ---|---|---|---
-`bwaMethBam`|File|Output Alignment BAM file|vidarr_label: bwaMethBam
-`bwaMethBamIndex`|File|Index of the Output Alignment file, BAI|vidarr_label: bwaMethIndex
+`bwaMethBam`|File|Output Alignment BAM file, merged, dedplicated and marked nonconverted reads|vidarr_label: bwaMethBam
+`bwaMethBamIndex`|File|Index of the Output Alignment file, merged, deduplicated file, and marked nonconverted reads|vidarr_label: bwaMethIndex
+`nonConvertedReads`|File|Statistics of nonconverted reads|vidarr_label: nonConvertedReads
 
 
 ## Commands
-This section lists command(s) run by bwaMeth workflow
-
-* Running bwaMeth
-
-
+ This section lists command(s) run by bwaMeth workflow
+ 
+ * Running bwaMeth
+ 
+ 
 ```
-        set -euo pipefail
-
-        if [ -z "~{numReads}" ]; then
-            totalLines=$(zcat ~{fastqR1} | wc -l)
-        else totalLines=$((~{numReads}*4))
-        fi
-        
-        python3 -c "from math import ceil; print (int(ceil(($totalLines/4.0)/~{numChunk})*4))"
-```
-```
-        set -euo pipefail
-        slicer -i ~{fastqR} -l ~{chunkSize} --gzip 
+         set -euo pipefail
+ 
+         if [ -z "~{numReads}" ]; then
+             totalLines=$(zcat ~{fastqR1} | wc -l)
+         else totalLines=$((~{numReads}*4))
+         fi
+         
+         python3 -c "from math import ceil; print (int(ceil(($totalLines/4.0)/~{numChunk})*4))"
 ```
 ```
-        set -euo pipefail
-        fastp \
-            --stdout --thread ~{threads} \
-            ~{fastpQ} ~{fastpq} ~{fastpu} ~{fastpn} ~{fastpL} ~{fastpl} ~{fastpA} ~{fastpG} \
-            -i ~{read1} -I ~{read2} \
-        | bwameth.py -p --threads ~{threads} --read-group ~{bwaReadGroup} --reference ~{bwaIndex} /dev/stdin \
-        | samtools sort -o output.bam -@ ~{threads} -
+         set -euo pipefail
+         slicer -i ~{fastqR} -l ~{chunkSize} --gzip 
 ```
 ```
-        set -euo pipefail
-
-        export JAVA_OPTS="-Xmx$(echo "scale=0; ~{jobMemory} * 0.8 / 1" | bc)G"
-        java -jar ${PICARD_ROOT}/picard.jar \
-        MergeSamFiles \
-        I=~{sep=" I=" bams} \
-        O=~{outputFileNamePrefix}.merged.bam \
-        USE_THREADING=true \
-        SORT_ORDER=coordinate
-
-        java -jar ${PICARD_ROOT}/picard.jar \
-        MarkDuplicates \
-        I=~{outputFileNamePrefix}.merged.bam \
-        O=~{outputFileNamePrefix}.deduped.bam \
-        METRICS_FILE=~{outputFileNamePrefix}.markDuplicates.txt \
-        OPTICAL_DUPLICATE_PIXEL_DISTANCE=~{opticalDistance} \
-        CREATE_INDEX=true \
-        ASSUME_SORT_ORDER=coordinate \
-        VALIDATION_STRINGENCY=SILENT 
+         set -euo pipefail
+         fastp \
+             --stdout --thread ~{threads} \
+             ~{fastpQ} ~{fastpq} ~{fastpu} ~{fastpn} ~{fastpL} ~{fastpl} ~{fastpA} ~{fastpG} \
+             -i ~{read1} -I ~{read2} \
+         | bwameth.py -p --threads ~{threads} --read-group ~{bwaReadGroup} --reference ~{bwaIndex} /dev/stdin \
+         | samtools sort -o output.bam -@ ~{threads} -
+```
+```
+         set -euo pipefail
+ 
+         export JAVA_OPTS="-Xmx$(echo "scale=0; ~{jobMemory} * 0.8 / 1" | bc)G"
+         java -jar ${PICARD_ROOT}/picard.jar \
+         MergeSamFiles \
+         I=~{sep=" I=" bams} \
+         O=mergedChunks.bam \
+         USE_THREADING=true \
+         SORT_ORDER=coordinate
+```
+```
+         set -euo pipefail
+         mkdir -p ~{tmpDir}
+ 
+         export JAVA_OPTS="-Xmx$(echo "scale=0; ~{jobMemory} * 0.8 / 1" | bc)G"
+         java -jar ${PICARD_ROOT}/picard.jar \
+         MergeSamFiles \
+         I=~{sep=" I=" bams} \
+         O=~{outputFileNamePrefix}.merged.bam \
+         USE_THREADING=true \
+         SORT_ORDER=coordinate
+ 
+         java -jar ${PICARD_ROOT}/picard.jar \
+         MarkDuplicates \
+         I=~{outputFileNamePrefix}.merged.bam \
+         O=~{outputFileNamePrefix}.merged.deduped.bam \
+         METRICS_FILE=~{outputFileNamePrefix}.markDuplicates.txt \
+         OPTICAL_DUPLICATE_PIXEL_DISTANCE=~{opticalDistance} \
+         CREATE_INDEX=true \
+         ASSUME_SORT_ORDER=coordinate \
+         VALIDATION_STRINGENCY=SILENT
+ 
+         python3 $METHYLSEQ_MARK_NONCONVERTED_READS_ROOT/bin/mark-nonconverted-reads.py --reference ~{reference_genome} --bam ~{outputFileNamePrefix}.merged.deduped.bam 2> "~{outputFileNamePrefix}.merged.deduped.nonconverted.tsv" \
+         | samtools view -u /dev/stdin \
+         | sambamba sort  --tmpdir=~{tmpDir}  -o "~{outputFileNamePrefix}.marknonconverted.merged.deduped.bam" /dev/stdin
+         sambamba index ~{outputFileNamePrefix}.marknonconverted.merged.deduped.bam
 ```
 
  ## Support

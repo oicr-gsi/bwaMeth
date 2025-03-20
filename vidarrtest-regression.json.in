@@ -79,6 +79,14 @@
                     }
                 ],
                 "type": "ALL"
+            },
+            "bwaMeth.nonConvertedReads": {
+                "contents": [
+                    {
+                        "outputDirectory": "@SCRATCH@/@DATE@_Workflow_bwaMeth_test_with_emseq-testg_@JENKINSID@"
+                    }
+                ],
+                "type": "ALL"
             }
         },
         "validators": [
