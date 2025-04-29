@@ -92,7 +92,7 @@ workflow bwaMeth {
         }
     }
     
-    call mergeAandMarkDuplicates {
+    call mergeAndMarkDuplicates {
         input:
         bams = mergeBams.mergedBam,
         outputFileNamePrefix = outputFileNamePrefix,
@@ -157,9 +157,9 @@ workflow bwaMeth {
     }
 
     output {
-        File bwaMethBam = mergeAandMarkDuplicates.outputMergedBam
-        File bwaMethBamIndex = mergeAandMarkDuplicates.outputMergedBai
-        File nonConvertedReads = mergeAandMarkDuplicates.nonconverted_reads
+        File bwaMethBam = mergeAndMarkDuplicates.outputMergedBam
+        File bwaMethBamIndex = mergeAndMarkDuplicates.outputMergedBai
+        File nonConvertedReads = mergeAndMarkDuplicates.nonconverted_reads
     }
 }
 
@@ -262,15 +262,7 @@ task trimAndAlign {
 
         Boolean fastpDisableQualityFiltering = false
         Int? fastpQualifiedQualityPhred
-        Int? fastpUnqualifiedPercentLimit
-        Int? fastpNBaseLimit
-
-        Boolean fastpDisableLengthFiltering = false
-        Int? fastpLengthRequired
-
-        Boolean fastpDisableAdapterTrimming = false
-
-        Boolean fastpDisableTrimPolyG = false
+        String? additionalParameters
 
         Int timeout = 48
         Int memory = 32
@@ -285,12 +277,7 @@ task trimAndAlign {
         bwaIndex: "The FastA in the directory that contains the bwa index files"
         fastpDisableQualityFiltering: "Disable fastp quality filtering"
         fastpQualifiedQualityPhred: "The quality value that a base is considered qualified (default >=Q15)"
-        fastpUnqualifiedPercentLimit: "How many percents of bases are allowed to be unqualified (default 40%)"
-        fastpNBaseLimit: "How many N can a read have before being discarded (default 5)"
-        fastpDisableLengthFiltering: "Disable filtering reads below a certain length"
-        fastpLengthRequired: "Reads shorter than length_required will be discarded (default 15)"
-        fastpDisableAdapterTrimming: "Disable all adapter trimming"
-        fastpDisableTrimPolyG: "Disable triming polyG at the end of the read"
+        additionalParameters: "Additional parameters for fastp"
         timeout: "The hours until the task is killed"
         memory: "The GB of memory provided to the task"
         threads: "The number of threads the task has access to"
@@ -299,21 +286,13 @@ task trimAndAlign {
 
     String fastpQ = if fastpDisableQualityFiltering then "-Q" else ""
     String fastpq = if defined(fastpQualifiedQualityPhred) then "-q ~{fastpQualifiedQualityPhred}" else ""
-    String fastpu = if defined(fastpUnqualifiedPercentLimit) then "-u ~{fastpUnqualifiedPercentLimit}" else ""
-    String fastpn = if defined(fastpNBaseLimit) then "-n ~{fastpNBaseLimit}" else ""
-
-    String fastpL = if fastpDisableLengthFiltering then "-L" else ""
-    String fastpl = if defined(fastpNBaseLimit) then "-l ~{fastpNBaseLimit}" else ""
-
-    String fastpA = if fastpDisableAdapterTrimming then "-A" else ""
-
-    String fastpG = if fastpDisableTrimPolyG then "-G" else ""
+    
 
     command <<<
         set -euo pipefail
         fastp \
             --stdout --thread ~{threads} \
-            ~{fastpQ} ~{fastpq} ~{fastpu} ~{fastpn} ~{fastpL} ~{fastpl} ~{fastpA} ~{fastpG} \
+            ~{fastpQ} ~{fastpq} ~{additionalParameters} \
             -i ~{read1} -I ~{read2} \
         | bwameth.py -p --threads ~{threads} --read-group ~{bwaReadGroup} --reference ~{bwaIndex} /dev/stdin \
         | samtools sort -o output.bam -@ ~{threads} -
@@ -376,7 +355,7 @@ task mergeBams{
     }
 }
 
-task mergeAandMarkDuplicates{
+task mergeAndMarkDuplicates{
     input {
         Array[File] bams
         String outputFileNamePrefix
