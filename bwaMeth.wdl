@@ -7,25 +7,25 @@ struct GenomeResources {
     String fasta
 }
 
+struct fastqInputs {
+    File fastqR1
+    File? fastqR2
+    String readGroup
+    Int numChunk
+    Int? numReads
+}
+
 workflow bwaMeth {
     input {
-        File fastqR1
-        File? fastqR2
-        String outputFileNamePrefix
-        Int numChunk = 1
-        Boolean doTrim = false
+        Array[fastqInputs] inputGroups
+        String outputFileNamePrefix     
         String reference
-        Int? numReads
     }
 
     parameter_meta {
-        fastqR1: "Fastq file for read 1"
-        fastqR2: "Fastq file for read 2"
+        inputGroups: "Array of fastq inputs and parameters"
         outputFileNamePrefix: "Prefix for output files"
-        numChunk: "Number of chunks to split fastq file [1, no splitting]"
-        doTrim: "If true, adapters will be trimmed before alignment [false]"
-        reference: "The genome reference build. For example: hg19, hg38, mm10"
-        numReads: "Number of reads"
+        reference: "The genome reference build. For example: hg19, hg38"
     }
 
     Map[String, GenomeResources] resources = {
@@ -39,149 +39,127 @@ workflow bwaMeth {
 
     GenomeResources ref = resources[reference]
 
-    if (numChunk > 1) {
-        call countChunkSize {
-            input:
-            fastqR1 = fastqR1,
-            numChunk = numChunk,
-            numReads = numReads
-        }
-    
-        call slicer as slicerR1 { 
-            input: 
-            fastqR = fastqR1,
-            chunkSize = countChunkSize.chunkSize
-        }
-        if (defined(fastqR2)) {
-            File fastqR2_ = select_all([fastqR2])[0]
-            call slicer as slicerR2 {
+    scatter (ig in inputGroups){
+        if (ig.numChunk > 1) {
+            call countChunkSize {
                 input:
-                fastqR = fastqR2_,
+                fastqR1 = ig.fastqR1,
+                numChunk = ig.numChunk,
+                numReads = ig.numReads
+            }
+        
+            call slicer as slicerR1 { 
+                input: 
+                fastqR = ig.fastqR1,
                 chunkSize = countChunkSize.chunkSize
             }
-        }
-    }
-
-    Array[File] fastq1 = select_first([slicerR1.chunkFastq, [fastqR1]])
-
-    if(defined(fastqR2)) {
-      Array[File?] fastq2 = select_first([slicerR2.chunkFastq, [fastqR2]])
-      Array[Pair[File,File?]] pairedFastqs = zip(fastq1,fastq2)
-    }
-
-    if(!defined(fastqR2)) {
-      Array[Pair[File,File?]] singleFastqs = cross(fastq1,[fastqR2])
-    }
-
-    Array[Pair[File,File?]] outputs = select_first([pairedFastqs, singleFastqs])
-
-    scatter (p in outputs) {
-
-        if (doTrim) {
-            call adapterTrimming { 
-                input:
-                fastqR1 = p.left,
-                fastqR2 = if (defined(fastqR2)) then p.right else fastqR2,
+            if (defined(ig.fastqR2)) {
+                File fastqR2_ = select_all([ig.fastqR2])[0]
+                call slicer as slicerR2 {
+                    input:
+                    fastqR = fastqR2_,
+                    chunkSize = countChunkSize.chunkSize
+                }
             }
         }
 
-        call runBwaMeth  { 
-                input: 
-                read1s = select_first([adapterTrimming.resultR1, p.left]),
-                read2s = if (defined(fastqR2)) then select_first([adapterTrimming.resultR2, p.right]) else fastqR2,
-                bwaIndex = ref.index,
-                modules = "bwa-meth/0.2.5 ~{ref.indexModule}"
-        }    
-    }
+        Array[File] fastq1 = select_first([slicerR1.chunkFastq, [ig.fastqR1]])
 
-    call bamMerge {
-        input:
-        bams = runBwaMeth.outputBam,
-        outputFileNamePrefix = outputFileNamePrefix
-    }
-
-    call indexBam { 
-        input: 
-        inputBam = bamMerge.outputMergedBam
-    }
-
-    if (doTrim) {
-        call adapterTrimmingLog {
-            input:
-            inputLogs = select_all(adapterTrimming.log),
-            outputFileNamePrefix = outputFileNamePrefix,
-            numChunk = numChunk,
-            singleEnded = if (defined(fastqR2)) then false else true
+        if(defined(ig.fastqR2)) {
+        Array[File?] fastq2 = select_first([slicerR2.chunkFastq, [ig.fastqR2]])
+        Array[Pair[File,File?]] pairedFastqs = zip(fastq1,fastq2)
         }
+
+        if(!defined(ig.fastqR2)) {
+        Array[Pair[File,File?]] singleFastqs = cross(fastq1,[ig.fastqR2])
+        }
+
+        Array[Pair[File,File?]] fastqPairs = select_first([pairedFastqs, singleFastqs])
+
+        scatter (p in fastqPairs) {
+            call trimAndAlign  { 
+                    input: 
+                    read1 =  p.left,
+                    read2 = if (defined(ig.fastqR2)) then p.right else ig.fastqR2,
+                    bwaReadGroup = ig.readGroup,
+                    bwaIndex = ref.index,
+                    modules = "fastp/0.23.2 bwa-meth/0.2.5 ~{ref.indexModule}"
+            }    
+        }
+        call mergeBams {
+            input:
+            bams = trimAndAlign.bam
+        }
+    }
+    
+    call mergeAndMarkDuplicates {
+        input:
+        bams = mergeBams.mergedBam,
+        outputFileNamePrefix = outputFileNamePrefix,
+        reference_genome = ref.index,
+        modules = "sambamba/0.8.2 samtools/1.15  picard/2.21.2 methylseq-mark-nonconverted-reads/1.2 ~{ref.indexModule}"
     }
 
     meta {
         author: "Gavin Peng"
         email: "gpeng@oicr.on.ca"
-        description: "Workflow to run bwa-meth, the fast aligner for EM-seq/BS-Seq reads.  Prior to alignment, there are options to remove 5' umi sequence and to trim off 3' sequencing adapter. Readgroup information to be injected into the bam header needs to be provided.  The workflow can also split the input data into a requested number of chunks, align each separately then merge the separate alignments into a single bam file.  This decreases the workflow run time.  Optional parameters can be provided to the workflow."
+        description: "Workflow to run bwa-meth, the fast aligner for EM-seq/BS-Seq reads. Prior to alignment, adatper trimming and quality filtering are performed. Readgroup information to be injected into the bam header needs to be provided.  The workflow can also split the input data into a requested number of chunks, align each separately then merge the separate alignments into a single bam file.  This decreases the workflow run time. Final bam file also applied markDuplicates."
         dependencies: [
         {
-            name: "cutadapt/1.8.3",
-            url: "https://cutadapt.readthedocs.io/en/v1.8.3/"
+            name: "fastp/0.23.2",
+            url: "https://github.com/OpenGene/fastp"
+        },
+        {
+            name: "bwa-meth/0.2.5",
+            url: "https://github.com/brentp/bwa-meth"
         },
         {
             name: "slicer/0.3.0",
             url: "https://github.com/OpenGene/slicer/archive/v0.3.0.tar.gz"
         },
+        { 
+          name: "samtools/1.15",
+          url: "https://github.com/samtools/samtools/releases/"
+        },
+        { 
+          name: "gsi hg38 modules : hg38-em-seq/p12-2022-10-17",
+          url: "https://gitlab.oicr.on.ca/ResearchIT/modulator"
+        },
+        {
+          name: "gsi modules : hg38-bwa-meth-index/p12-2022-10-17",
+          url: "https://gitlab.oicr.on.ca/ResearchIT/modulator"
+        },
+        { name: "picard/2.21.2",
+          url: "https://broadinstitute.github.io/picard/"
+        },
         {
             name: "python/3.7",
             url: "https://www.python.org"
-        },      
-        {
-            name: "barcodex-rs/0.1.2",
-            url: "https://github.com/oicr-gsi/barcodex-rs/archive/v0.1.2.tar.gz"
         },
-        {
-            name: "rust/1.2",
-            url: "https://www.rust-lang.org/tools/install"
-        },
-        { 
-          name: "gsi software modules : samtools/1.9 bwa/0.7.17",
-          url: "https://gitlab.oicr.on.ca/ResearchIT/modulator"
-        },
-        { 
-          name: "gsi hg38 modules : hg38-bwa-index-with-alt/0.7.17",
-          url: "https://gitlab.oicr.on.ca/ResearchIT/modulator"
-        },
-        {
-          name: "gsi hg19 modules : hg19-bwa-index/0.7.17",
-          url: "https://gitlab.oicr.on.ca/ResearchIT/modulator"
-        },
-        {
-          name: "gsi mm10 modules :mm10-bwa-index/0.7.17",
-          url: "https://gitlab.oicr.on.ca/ResearchIT/modulator"
+        {   name: "methylseq-mark-nonconverted-reads/1.2",
+            url: "https://github.com/nebiolabs/mark-nonconverted-reads"
         }
       ]
       output_meta: {
-      bwaMethBam: {
-          description: "Output Alignment BAM file",
-          vidarr_label: "bwaMethBam"
-      },
-      bwaMethIndex: {
-          description: "Index of the Output Alignment file, BAI",
-          vidarr_label: "bwaMethIndex"
-      },
-      log: {
-          description: "Optional log file",
-          vidarr_label: "log"
-      },
-      cutAdaptAllLogs: {
-          description: "Optional log file for cutAdapt",
-          vidarr_label: "cutAdaptAllLogs"
-      }
+        bwaMethBam: {
+            description: "Output Alignment BAM file, merged, dedplicated and marked nonconverted reads",
+            vidarr_label: "bwaMethBam"
+        },
+        bwaMethBamIndex: {
+            description: "Index of the Output Alignment file, merged, deduplicated file, and marked nonconverted reads",
+            vidarr_label: "bwaMethIndex"
+        },
+        nonConvertedReads: {
+            description: "Statistics of nonconverted reads",
+            vidarr_label: "nonConvertedReads"
+        }
       }
     }
 
     output {
-        File bwaMethBam = bamMerge.outputMergedBam
-        File bwaMethIndex = indexBam.outputBai
-        File? log = adapterTrimmingLog.summaryLog
-        File? cutAdaptAllLogs = adapterTrimmingLog.allLogs
+        File bwaMethBam = mergeAndMarkDuplicates.outputMergedBam
+        File bwaMethBamIndex = mergeAndMarkDuplicates.outputMergedBai
+        File nonConvertedReads = mergeAndMarkDuplicates.nonconverted_reads
     }
 }
 
@@ -274,168 +252,96 @@ task slicer {
   
 }
 
-task adapterTrimming {
+task trimAndAlign {
     input {
-        File fastqR1
-        File? fastqR2
-        String modules = "cutadapt/1.8.3"
-        Boolean doUMItrim = false
-        Int umiLength = 5
-        Int trimMinLength = 1
-        Int trimMinQuality = 0
-        String adapter1 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC"
-        String adapter2 = "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT" 
-        String? addParam
-        Int jobMemory = 16
-        Int timeout = 48  
+        File read1
+        File? read2
+
+        String bwaReadGroup
+        String bwaIndex
+
+        Boolean fastpDisableQualityFiltering = false
+        Int? fastpQualifiedQualityPhred
+        String? additionalParameters
+
+        Int timeout = 48
+        Int memory = 32
+        Int threads = 8
+        String modules
     }
-    
+
     parameter_meta {
-        fastqR1: "Fastq file for read 1"
-        fastqR2: "Fastq file for read 2"
-        doUMItrim: "If true, do umi trimming"
-        umiLength: "The number of bases to trim when doUMItrim is true. If the given length is positive, the bases are removed from the beginning of each read. If it is negative, the bases are removed from the end"
-        trimMinLength: "Minimum length of reads to keep"
-        trimMinQuality: "Minimum quality of read ends to keep"
-        adapter1: "Adapter sequence to trim from read 1"
-        adapter2: "Adapter sequence to trim from read 2"
-        modules: "Required environment modules"
-        addParam: "Additional cutadapt parameters"
-        jobMemory: "Memory allocated for this job"
-        timeout: "Hours before task timeout"
+        read1: "Read 1 FastQ file"
+        read2: "Read 2 FastQ file"
+        bwaReadGroup: "Read group that will populate the `@RG` BAM flag"
+        bwaIndex: "The FastA in the directory that contains the bwa index files"
+        fastpDisableQualityFiltering: "Disable fastp quality filtering"
+        fastpQualifiedQualityPhred: "The quality value that a base is considered qualified (default >=Q15)"
+        additionalParameters: "Additional parameters for fastp"
+        timeout: "The hours until the task is killed"
+        memory: "The GB of memory provided to the task"
+        threads: "The number of threads the task has access to"
+        modules: "The modules that will be loaded"
     }
-   
-    Array[File] inputs = select_all([fastqR1,fastqR2])
-    String resultFastqR1 = "~{basename(fastqR1, ".fastq.gz")}.trim.fastq.gz"
-    String resultFastqR2 = if (length(inputs) > 1) then "~{basename(inputs[1], ".fastq.gz")}.trim.fastq.gz" else "None"
-    String resultLog = "~{basename(fastqR1, ".fastq.gz")}.log"
+
+    String fastpQ = if fastpDisableQualityFiltering then "-Q" else ""
+    String fastpq = if defined(fastpQualifiedQualityPhred) then "-q ~{fastpQualifiedQualityPhred}" else ""
     
+
     command <<<
         set -euo pipefail
-
-        cutadapt -q ~{trimMinQuality} \
-                -m ~{trimMinLength} \
-                -a ~{adapter1} \
-                -o ~{resultFastqR1} \
-                ~{if (defined(fastqR2)) then "-A ~{adapter2} -p ~{resultFastqR2} " else ""} \
-                ~{if (doUMItrim) then "-u ~{umiLength} -U ~{umiLength} " else ""} \
-                ~{addParam} \
-                ~{fastqR1} \
-                ~{fastqR2} > ~{resultLog}
-
+        fastp \
+            --stdout --thread ~{threads} \
+            ~{fastpQ} ~{fastpq} ~{additionalParameters} \
+            -i ~{read1} -I ~{read2} \
+        | bwameth.py -p --threads ~{threads} --read-group ~{bwaReadGroup} --reference ~{bwaIndex} /dev/stdin \
+        | samtools sort -o output.bam -@ ~{threads} -
     >>>
-    
-    runtime {
-        memory: "~{jobMemory} GB"
-        modules: "~{modules}"
-        timeout: "~{timeout}"
-    } 
-    
-    output { 
-        File resultR1 = "~{resultFastqR1}"
-        File? resultR2 = "~{resultFastqR2}"
-        File log =  "~{resultLog}"     
+
+    output {
+        File fastpReport = "fastp.json"
+        File bam = "output.bam"
     }
 
     meta {
         output_meta: {
-            resultR1: "output fastq read 1 after trimming",
-            resultR2: "output fastq read 2 after trimming",
-            log: "output adpater trimming log"
+            fastpReport: "The json report file produced by fastp",
+            bam: "The bam file produced by the trimmed FastQ files fed to bwa-meth"
         }
-    } 
-}
-
-
-task runBwaMeth {
-    input {
-        File read1s
-        File? read2s
-        String readGroups
-        String modules
-        String bwaIndex
-        String? addParam
-        Int threads = 8
-        Int jobMemory = 32
-        Int timeout = 96
     }
-
-    parameter_meta {
-        read1s: "Fastq file for read 1"
-        read2s: "Fastq file for read 2"
-        readGroups: "The readgroup information to be injected into the bam header"
-        bwaIndex: "The FastA reference, with bwa-meth created index stored in the same directory"
-        modules: "Required environment modules"
-        addParam: "Additional BWA parameters"
-        threads: "Requested CPU threads"
-        jobMemory: "Memory allocated for this job"
-        timeout: "Hours before task timeout"
-    }
-    
-    String resultBam = "~{basename(read1s)}.bam"
-    String tmpDir = "tmp/"
-
-    command <<<
-        set -euo pipefail
-        mkdir -p ~{tmpDir}
-        pair_option=""
-        if [[ -n "~{read2s}" ]]; then
-            pair_option="-p"
-        fi
-
-        bwameth.py \
-            ${pair_option} \
-            --threads ~{threads} \
-            --read-group ~{readGroups} \
-            --reference ~{bwaIndex} \
-            ~{sep=" " select_all([read1s, read2s])} \
-        | \
-        samtools sort -O bam -T ~{tmpDir} -o ~{resultBam} - 
-    >>>
 
     runtime {
         modules: "~{modules}"
-        memory:  "~{jobMemory} GB"
+        memory:  "~{memory} GB"
         cpu:     "~{threads}"
         timeout: "~{timeout}"
-    }  
-    
-    output {
-        File outputBam = "~{resultBam}"
     }
-
-    meta {
-        output_meta: {
-            outputBam: "output bam aligned to genome"
-        }
-    }
-
 }
 
-task bamMerge{
+task mergeBams{
     input {
         Array[File] bams
-        String outputFileNamePrefix
-        Int   jobMemory = 32
-        String modules  = "samtools/1.9"
-        Int timeout     = 72
+        Int jobMemory = 32
+        String modules = "picard/2.21.2"
+        Int timeout = 12
     }
     parameter_meta {
         bams:  "Input bam files"
-        outputFileNamePrefix: "Prefix for output file"
         jobMemory: "Memory allocated indexing job"
         modules:   "Required environment modules"
         timeout:   "Hours before task timeout"    
     }
 
-    String resultMergedBam = "~{outputFileNamePrefix}.bam"
-
     command <<<
         set -euo pipefail
-        samtools merge \
-        -c \
-        ~{resultMergedBam} \
-        ~{sep=" " bams} 
+
+        export JAVA_OPTS="-Xmx$(echo "scale=0; ~{jobMemory} * 0.8 / 1" | bc)G"
+        java -jar ${PICARD_ROOT}/picard.jar \
+        MergeSamFiles \
+        I=~{sep=" I=" bams} \
+        O=mergedChunks.bam \
+        USE_THREADING=true \
+        SORT_ORDER=coordinate
     >>>
 
     runtime {
@@ -445,7 +351,69 @@ task bamMerge{
     }
 
     output {
-        File outputMergedBam = "~{resultMergedBam}"
+        File mergedBam = "mergedChunks.bam"
+    }
+}
+
+task mergeAndMarkDuplicates{
+    input {
+        Array[File] bams
+        String outputFileNamePrefix
+        String reference_genome
+        Int opticalDistance = 100
+        Int jobMemory = 64
+        String modules
+        Int timeout = 72
+    }
+    parameter_meta {
+        bams:  "Input bam files"
+        outputFileNamePrefix: "Prefix for output file"
+        reference_genome: "the reference genome fasta"
+        opticalDistance: "For MarkDuplicates. The maximum offset between two duplicate clusters in order to consider them optical duplicates. 100 is appropriate for unpatterned versions of the Illumina platform. For the patterned flowcell models, 2500 is more appropriate."
+        jobMemory: "Memory allocated indexing job"
+        modules:   "Required environment modules"
+        timeout:   "Hours before task timeout"    
+    }
+    String tmpDir = "tmp/"
+
+    command <<<
+        set -euo pipefail
+        mkdir -p ~{tmpDir}
+
+        export JAVA_OPTS="-Xmx$(echo "scale=0; ~{jobMemory} * 0.8 / 1" | bc)G"
+        java -jar ${PICARD_ROOT}/picard.jar \
+        MergeSamFiles \
+        I=~{sep=" I=" bams} \
+        O=~{outputFileNamePrefix}.merged.bam \
+        USE_THREADING=true \
+        SORT_ORDER=coordinate
+
+        java -jar ${PICARD_ROOT}/picard.jar \
+        MarkDuplicates \
+        I=~{outputFileNamePrefix}.merged.bam \
+        O=~{outputFileNamePrefix}.merged.deduped.bam \
+        METRICS_FILE=~{outputFileNamePrefix}.markDuplicates.txt \
+        OPTICAL_DUPLICATE_PIXEL_DISTANCE=~{opticalDistance} \
+        CREATE_INDEX=true \
+        ASSUME_SORT_ORDER=coordinate \
+        VALIDATION_STRINGENCY=SILENT
+
+        python3 $METHYLSEQ_MARK_NONCONVERTED_READS_ROOT/bin/mark-nonconverted-reads.py --reference ~{reference_genome} --bam ~{outputFileNamePrefix}.merged.deduped.bam 2> "~{outputFileNamePrefix}.merged.deduped.nonconverted.tsv" \
+        | samtools view -u /dev/stdin \
+        | sambamba sort  --tmpdir=~{tmpDir}  -o "~{outputFileNamePrefix}.marknonconverted.merged.deduped.bam" /dev/stdin
+        sambamba index ~{outputFileNamePrefix}.marknonconverted.merged.deduped.bam
+    >>>
+
+    runtime {
+        memory: "~{jobMemory} GB"
+        modules: "~{modules}"
+        timeout: "~{timeout}"
+    }
+
+    output {
+        File outputMergedBam = "~{outputFileNamePrefix}.marknonconverted.merged.deduped.bam"
+        File outputMergedBai = "~{outputFileNamePrefix}.marknonconverted.merged.deduped.bam.bai"
+        File nonconverted_reads = "~{outputFileNamePrefix}.merged.deduped.nonconverted.tsv"
     }
 
     meta {
@@ -455,156 +423,3 @@ task bamMerge{
     }       
 }
 
-task indexBam {
-    input {
-        File  inputBam
-        Int   jobMemory = 12
-        String modules  = "samtools/1.9"
-        Int timeout     = 48
-    }
-    parameter_meta {
-        inputBam:  "Input bam file"
-        jobMemory: "Memory allocated indexing job"
-        modules:   "Modules for running indexing job"
-        timeout:   "Hours before task timeout"
-    }
-
-    String resultBai = "~{basename(inputBam)}.bai"
-
-    command <<<
-        set -euo pipefail
-        samtools index ~{inputBam} ~{resultBai}
-    >>>
-
-    runtime {
-        memory: "~{jobMemory} GB"
-        modules: "~{modules}"
-        timeout: "~{timeout}"
-    }
-
-    output {
-        File outputBai = "~{resultBai}"
-    }
-
-    meta {
-        output_meta: {
-            outputBai: "output index file for bam aligned to genome"
-        }
-    }
-
-}
-
-task adapterTrimmingLog {
-    input {
-        Array[File] inputLogs
-        String outputFileNamePrefix
-        Int   numChunk
-        Boolean singleEnded = false
-        Int   jobMemory = 12
-        Int timeout     = 48
-
-
-    }
-    parameter_meta {
-        inputLogs:  "Input log files"
-        outputFileNamePrefix: "Prefix for output file"
-        numChunk: "Number of chunks to split fastq file"
-        singleEnded: "true if reads are single ended"
-        jobMemory: "Memory allocated indexing job"
-        timeout:   "Hours before task timeout"
-    }
-
-    String allLog = "~{outputFileNamePrefix}.txt"
-    String log = "~{outputFileNamePrefix}.log"
-
-    command <<<
-        set -euo pipefail
-        awk 'BEGINFILE {print "###################################\n"}{print}' ~{sep=" " inputLogs} > ~{allLog}
-
-        totalBP=$(cat ~{allLog} | grep "Total basepairs processed:" | cut -d":" -f2 | sed 's/^[ \t]*//; s/ bp//; s/,//g' | awk '{x+=$1}END{print x}')
-
-        bpQualitytrimmed=$(cat ~{allLog} | grep "Quality-trimmed:" | cut -d":" -f2 | sed 's/^[ \t]*//; s/ bp//; s/,//g; s/ (.*)//' | awk '{x+=$1}END{print x}')
-        percentQualitytrimmed=$(awk -v A="${bpQualitytrimmed}" -v B="${totalBP}" 'BEGIN {printf "%0.1f\n", A*100.0/B}')
-
-        bpTotalWritten=$(cat ~{allLog} | grep "Total written (filtered):" | cut -d":" -f2 | sed 's/^[ \t]*//; s/ bp//; s/,//g; s/ (.*)//' | awk '{x+=$1}END{print x}')
-        percentBPWritten=$(awk -v A="${bpTotalWritten}" -v B="${totalBP}" 'BEGIN {printf "%0.1f\n", A*100.0/B}')
-
-        echo -e "This is a cutadapt summary from ~{numChunk} fastq chunks\n" > ~{log}
-
-        if ! ~{singleEnded} ; then
-          totalRead=$(cat ~{allLog} | grep "Total read pairs processed:" | cut -d":" -f2 | sed 's/ //g; s/,//g' | awk '{x+=$1}END{print x}')
-          adapterR1=$(cat ~{allLog} | grep " Read 1 with adapter:" | cut -d ":" -f2 | sed 's/^[ \t]*//; s/ (.*)//; s/,//g'| awk '{x+=$1}END{print x}')
-          percentAdapterR1=$(awk -v A="${adapterR1}" -v B="${totalRead}" 'BEGIN {printf "%0.1f\n", A*100.0/B}')
-          adapterR2=$(cat ~{allLog} | grep " Read 2 with adapter:" | cut -d ":" -f2 | sed 's/^[ \t]*//; s/ (.*)//; s/,//g'| awk '{x+=$1}END{print x}')
-          percentAdapterR2=$(awk -v A="${adapterR2}" -v B="${totalRead}" 'BEGIN {printf "%0.1f\n", A*100.0/B}')
-
-          shortPairs=$(cat ~{allLog} | grep "Pairs that were too short:" | cut -d ":" -f2 | sed 's/^[ \t]*//; s/ (.*)//; s/,//g'| awk '{x+=$1}END{print x}')
-          percentShortPairs=$(awk -v A="${shortPairs}" -v B="${totalRead}" 'BEGIN {printf "%0.1f\n", A*100.0/B}')
-
-          pairsWritten=$(cat ~{allLog} | grep "Pairs written (passing filters): " | cut -d ":" -f2 | sed 's/^[ \t]*//; s/ (.*)//; s/,//g'| awk '{x+=$1}END{print x}')
-          percentpairsWritten=$(awk -v A="${pairsWritten}" -v B="${totalRead}" 'BEGIN {printf "%0.1f\n", A*100.0/B}')
-
-          bpR1=$(cat ~{allLog} | grep -A 2 "Total basepairs processed:" | grep "Read 1:" | cut -d":" -f2 | sed 's/^[ \t]*//; s/ bp//; s/,//g' | awk '{x+=$1}END{print x}')
-          bpR2=$(cat ~{allLog} | grep -A 2 "Total basepairs processed:" | grep "Read 2:" | cut -d":" -f2 | sed 's/^[ \t]*//; s/ bp//; s/,//g' | awk '{x+=$1}END{print x}')
-
-          bpQualitytrimmedR1=$(cat ~{allLog} | grep -A 2 "Quality-trimmed:" | grep "Read 1:" | cut -d":" -f2 | sed 's/^[ \t]*//; s/ bp//; s/,//g' | awk '{x+=$1}END{print x}')
-          bpQualitytrimmedR2=$(cat ~{allLog} | grep -A 2 "Quality-trimmed:" | grep "Read 2:" | cut -d":" -f2 | sed 's/^[ \t]*//; s/ bp//; s/,//g' | awk '{x+=$1}END{print x}')
-
-          bpWrittenR1=$(cat ~{allLog} | grep -A 2 "Total written (filtered):" | grep "Read 1:" | cut -d":" -f2 | sed 's/^[ \t]*//; s/ bp//; s/,//g' | awk '{x+=$1}END{print x}')
-          bpWrittenR2=$(cat ~{allLog} | grep -A 2 "Total written (filtered):" | grep "Read 2:" | cut -d":" -f2 | sed 's/^[ \t]*//; s/ bp//; s/,//g' | awk '{x+=$1}END{print x}')
-
-          echo -e "Total read pairs processed:\t${totalRead}" >> ~{log}
-          echo -e "  Read 1 with adapter:\t${adapterR1} (${percentAdapterR1}%)" >> ~{log}
-          echo -e "  Read 2 with adapter:\t${adapterR2} (${percentAdapterR2}%)" >> ~{log}
-          echo -e "Pairs that were too short:\t${shortPairs} (${percentShortPairs}%)" >> ~{log}
-          echo -e "Pairs written (passing filters):\t${pairsWritten} (${percentpairsWritten}%)\n\n" >> ~{log}
-          echo -e "Total basepairs processed:\t${totalBP} bp" >> ~{log}
-          echo -e "  Read 1:\t${bpR1} bp" >> ~{log}
-          echo -e "  Read 2:\t${bpR2} bp" >> ~{log}
-          echo -e "Quality-trimmed:\t${bpQualitytrimmed} bp (${percentQualitytrimmed}%)" >> ~{log}
-          echo -e "  Read 1:\t${bpQualitytrimmedR1} bp" >> ~{log}
-          echo -e "  Read 2:\t${bpQualitytrimmedR2} bp" >> ~{log}
-          echo -e "Total written (filtered):\t${bpTotalWritten} bp (${percentBPWritten}%)" >> ~{log}
-          echo -e "  Read 1:\t${bpWrittenR1} bp" >> ~{log}
-          echo -e "  Read 2:\t${bpWrittenR2} bp" >> ~{log}
-
-        else 
-          totalRead=$(cat ~{allLog} | grep "Total reads processed:" | cut -d":" -f2 | sed 's/ //g; s/,//g' | awk '{x+=$1}END{print x}')
-          adapterR=$(cat ~{allLog} | grep "Reads with adapters:" | cut -d ":" -f2 | sed 's/^[ \t]*//; s/ (.*)//; s/,//g'| awk '{x+=$1}END{print x}')
-          percentAdapterR=$(awk -v A="${adapterR}" -v B="${totalRead}" 'BEGIN {printf "%0.1f\n", A*100.0/B}')
-
-          shortReads=$(cat ~{allLog} | grep "Reads that were too short:" | cut -d ":" -f2 | sed 's/^[ \t]*//; s/ (.*)//; s/,//g'| awk '{x+=$1}END{print x}')
-          percentShortReads=$(awk -v A="${shortReads}" -v B="${totalRead}" 'BEGIN {printf "%0.1f\n", A*100.0/B}')
-
-          ReadsWritten=$(cat ~{allLog} | grep "Reads written (passing filters): " | cut -d ":" -f2 | sed 's/^[ \t]*//; s/ (.*)//; s/,//g'| awk '{x+=$1}END{print x}')
-          percentreadsWritten=$(awk -v A="${ReadsWritten}" -v B="${totalRead}" 'BEGIN {printf "%0.1f\n", A*100.0/B}')                 
-
-          echo -e "Total reads processed:\t${totalRead}" >> ~{log}
-          echo -e "Reads with adapters:\t${adapterR} (${percentAdapterR}%)" >> ~{log}
-          echo -e "Reads that were too short:\t${shortReads} (${percentShortReads}%)" >> ~{log}
-          echo -e "Reads written (passing filters):\t${ReadsWritten} (${percentreadsWritten}%)\n\n" >> ~{log}
-          echo -e "Total basepairs processed:\t${totalBP} bp" >> ~{log}
-          echo -e "Quality-trimmed:\t${bpQualitytrimmed} bp (${percentQualitytrimmed}%)" >> ~{log}
-          echo -e "Total written (filtered):\t${bpTotalWritten} bp (${percentBPWritten}%)" >> ~{log}
-        fi
-    >>>
-
-    runtime {
-        memory: "~{jobMemory} GB"
-        timeout: "~{timeout}"
-    }
-  
-    output {
-        File summaryLog = "~{log}"
-        File allLogs = "~{allLog}"
-    }
-
-    meta {
-        output_meta: {
-            summaryLog: "a summary log file for adapter trimming",
-            allLogs: "a file containing all logs for adapter trimming for each fastq chunk"
-        }
-    }
-
-}
- 

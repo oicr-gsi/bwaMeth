@@ -1,0 +1,104 @@
+[
+    {
+        "arguments": {
+            "bwaMeth.inputGroups": [
+                {
+                    "fastqR1":  {
+                        "contents": {
+                            "configuration": "/.mounts/labs/gsi/testdata/bwaMeth/test_inputs/emseq-testg_R1.fastq.gz",
+                            "externalIds": [
+                                {
+                                    "id": "TEST",
+                                    "provider": "TEST"
+                                }
+                            ]
+                        },
+                        "type": "EXTERNAL"
+                    }, 
+                    "fastqR2": {
+                        "contents": {
+                            "configuration": "/.mounts/labs/gsi/testdata/bwaMeth/test_inputs/emseq-testg_R2.fastq.gz",
+                            "externalIds": [
+                                {
+                                    "id": "TEST",
+                                    "provider": "TEST"
+                                }
+                            ]
+                        },
+                        "type": "EXTERNAL"
+                    },
+                    "readGroup": "'@RG\\tID:121005_h804_0096_AD0V4NACXX-NoIndex_6\\tLB:emseq-testg\\tPL:ILLUMINA\\tPU:121005_h804_0096_AD0V4NACXX-NoIndex_6\\tSM:emseq-testg'",
+                    "numChunk": 1,
+                    "numReads": null
+                }
+            ],
+            "bwaMeth.outputFileNamePrefix": "emseq-testg_test2",
+            "bwaMeth.reference": "hg38",
+            "bwaMeth.trimAndAlign.bwaReadGroup": null,
+            "bwaMeth.mergeAndMarkDuplicates.opticalDistance": 100,
+            "bwaMeth.countChunkSize.modules": null,
+            "bwaMeth.countChunkSize.jobMemory": null,
+            "bwaMeth.countChunkSize.timeout": null,
+            "bwaMeth.slicerR1.jobMemory": null,
+            "bwaMeth.slicerR1.modules": null,
+            "bwaMeth.slicerR1.timeout": null,
+            "bwaMeth.slicerR2.jobMemory": null,
+            "bwaMeth.slicerR2.modules": null,
+            "bwaMeth.slicerR2.timeout": null,
+            "bwaMeth.trimAndAlign.modules": null,
+            "bwaMeth.trimAndAlign.memory": null,
+            "bwaMeth.trimAndAlign.timeout": null,
+            "bwaMeth.trimAndAlign.threads": null,
+            "bwaMeth.trimAndAlign.bwaIndex": null,
+            "bwaMeth.trimAndAlign.fastpDisableQualityFiltering": false,
+            "bwaMeth.trimAndAlign.fastpQualifiedQualityPhred": null,
+            "bwaMeth.trimAndAlign.additionalParameters": null,
+            "bwaMeth.mergeBams.jobMemory": null,
+            "bwaMeth.mergeBams.modules": null,
+            "bwaMeth.mergeBams.timeout": null,
+            "bwaMeth.mergeAndMarkDuplicates.modules": null,
+            "bwaMeth.mergeAndMarkDuplicates.jobMemory": null,
+            "bwaMeth.mergeAndMarkDuplicates.timeout": null
+        },
+        "description": "bwaMeth workflow test",
+        "engineArguments": {
+           "write_to_cache": false,
+           "read_from_cache": false
+        },
+        "id": "bwaMeth_test_with_emseq-testg",
+        "metadata": {
+            "bwaMeth.bwaMethBam": {
+                "contents": [
+                    {
+                        "outputDirectory": "@SCRATCH@/@DATE@_Workflow_bwaMeth_test_with_emseq-testg_@JENKINSID@"
+                    }
+                ],
+                "type": "ALL"
+            },
+            "bwaMeth.bwaMethBamIndex": {
+                "contents": [
+                    {
+                        "outputDirectory": "@SCRATCH@/@DATE@_Workflow_bwaMeth_test_with_emseq-testg_@JENKINSID@"
+                    }
+                ],
+                "type": "ALL"
+            },
+            "bwaMeth.nonConvertedReads": {
+                "contents": [
+                    {
+                        "outputDirectory": "@SCRATCH@/@DATE@_Workflow_bwaMeth_test_with_emseq-testg_@JENKINSID@"
+                    }
+                ],
+                "type": "ALL"
+            }
+        },
+        "validators": [
+            {
+                "metrics_calculate": "@CHECKOUT@/tests/calculate.sh",
+                "metrics_compare": "@CHECKOUT@/tests/compare.sh",
+                "output_metrics": "/.mounts/labs/gsi/testdata/bwaMeth/output_expectation/bwaMeth_test_with_emseq-testg.metrics",
+                "type": "script"
+            }
+        ]
+    }
+]
