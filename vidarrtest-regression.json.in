@@ -27,7 +27,7 @@
                         },
                         "type": "EXTERNAL"
                     },
-                    "readGroup": "'@RG\\tID:121005_h804_0096_AD0V4NACXX-NoIndex_6\\tLB:emseq-testg\\tPL:ILLUMINA\\tPU:121005_h804_0096_AD0V4NACXX-NoIndex_6\\tSM:emseq-testg'",
+                    "readGroup": "'@RG\\tID:Test-NoIndex_6\\tLB:emseq-testg\\tPL:ILLUMINA\\tPU:Test-NoIndex_6\\tSM:emseq-testg'",
                     "numChunk": 1,
                     "numReads": null
                 }
@@ -96,7 +96,7 @@
             {
                 "metrics_calculate": "@CHECKOUT@/tests/calculate.sh",
                 "metrics_compare": "@CHECKOUT@/tests/compare.sh",
-                "output_metrics": "/.mounts/labs/gsi/testdata/bwaMeth/output_expectation/bwaMeth_test_with_emseq-testg.metrics",
+                "output_metrics": "/.mounts/labs/gsi/testdata/bwaMeth/output_metrics/workflow_test_01.metrics",
                 "type": "script"
             }
         ]
