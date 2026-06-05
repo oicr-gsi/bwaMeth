@@ -34,6 +34,12 @@ workflow bwaMeth {
             "index": "$HG38_BWA_METH_INDEX_ROOT/hg38_random.fa",
             "genomeModule": "hg38-em-seq/p12-2022-10-17",
             "fasta": "$HG38_EM_SEQ_ROOT/hg38_random.fa"
+        },
+        "hg38_noAlt": {
+            "indexModule": "hg38-hg38-noalt-bwa-meth-index/p12-2026-06-03",
+            "index": "$HG38_NOALT_BWA_METH_INDEX_ROOT/hg38_noAlt.fa",
+            "genomeModule": "hg38-noalt-em-seq/p12-2026-06-01",
+            "fasta": "$HG38_NOALT_EM_SEQ_ROOT/hg38_noAlt.fa"
         }
     }
 
@@ -133,11 +139,12 @@ workflow bwaMeth {
           url: "https://broadinstitute.github.io/picard/"
         },
         {
-            name: "python/3.7",
-            url: "https://www.python.org"
+          name: "python/3.7",
+          url: "https://www.python.org"
         },
-        {   name: "methylseq-mark-nonconverted-reads/1.2",
-            url: "https://github.com/nebiolabs/mark-nonconverted-reads"
+        {   
+          name: "methylseq-mark-nonconverted-reads/1.2",
+          url: "https://github.com/nebiolabs/mark-nonconverted-reads"
         }
       ]
       output_meta: {
