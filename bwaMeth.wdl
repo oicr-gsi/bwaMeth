@@ -36,7 +36,7 @@ workflow bwaMeth {
             "fasta": "$HG38_EM_SEQ_ROOT/hg38_random.fa"
         },
         "hg38_noAlt": {
-            "indexModule": "hg38-hg38-noalt-bwa-meth-index/p12-2026-06-03",
+            "indexModule": "hg38-noalt-bwa-meth-index/p12-2026-06-03",
             "index": "$HG38_NOALT_BWA_METH_INDEX_ROOT/hg38_noAlt.fa",
             "genomeModule": "hg38-noalt-em-seq/p12-2026-06-01",
             "fasta": "$HG38_NOALT_EM_SEQ_ROOT/hg38_noAlt.fa"
